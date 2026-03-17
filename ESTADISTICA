@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora Kaplan-Meier</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#f4f6f9;color:#1a1a1a;padding:1.5rem}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:20px;font-weight:600;margin-bottom:4px}
+.subtitle{font-size:13px;color:#666;margin-bottom:1.5rem}
+.tabs{display:flex;gap:4px;border-bottom:1px solid #ddd;margin-bottom:1.2rem}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;border:none;background:none;color:#666;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.active{color:#185FA5;border-bottom:2px solid #185FA5;font-weight:600}
+.panel{display:none}.panel.active{display:block}
+.card{background:#fff;border:1px solid #e2e6ea;border-radius:8px;padding:1rem;margin-bottom:12px}
+.card-gray{background:#f8f9fb;border-radius:8px;padding:1rem;margin-bottom:12px}
+label{font-size:12px;color:#555;display:block;margin-bottom:4px}
+input,select,textarea{width:100%;font-size:13px;padding:7px 10px;border:1px solid #ddd;border-radius:6px;background:#fff;color:#1a1a1a;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#185FA5;box-shadow:0 0 0 2px rgba(24,95,165,0.15)}
+textarea{resize:vertical;font-family:monospace;font-size:12px;line-height:1.6}
+button{font-size:13px;font-weight:500;padding:8px 18px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#1a1a1a;cursor:pointer}
+button:hover{background:#f0f4f8}
+.btn-primary{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-primary:hover{background:#0C447C}
+.btn-sm{padding:5px 12px;font-size:12px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:1rem}
+.metric{background:#f0f6ff;border-radius:8px;padding:1rem;text-align:center}
+.metric .grp{font-size:11px;font-weight:700;margin-bottom:6px}
+.metric .val{font-size:20px;font-weight:700}
+.metric .lbl{font-size:11px;color:#666;margin-top:2px}
+.sv-row{display:flex;justify-content:space-around;margin-top:10px}
+.sv-item .n{font-size:17px;font-weight:600}.sv-item .l{font-size:10px;color:#666}
+.error{background:#fff0f0;border:1px solid #f5a5a5;border-radius:6px;padding:10px 14px;font-size:13px;color:#c0392b;margin-bottom:12px;display:none}
+.info-box{background:#e8f2fd;border-left:3px solid #185FA5;border-radius:0 6px 6px 0;padding:10px 14px;font-size:12px;color:#0C447C;margin-bottom:12px}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{background:#f4f6f9;padding:7px 10px;text-align:left;font-weight:600;border-bottom:1px solid #e2e6ea}
+.tbl td{padding:6px 10px;border-bottom:1px solid #f0f0f0;color:#1a1a1a}
+.tbl tr:last-child td{border-bottom:none}
+.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-ok{background:#e8f5e9;color:#2e7d32}
+.badge-ko{background:#fff3e0;color:#e65100}
+.legend-dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+#chart-area{position:relative;width:100%;height:340px}
+.data-grid{display:grid;grid-template-columns:60px 90px 80px 70px 32px;gap:4px;margin-bottom:4px;align-items:center}
+.col-hdr{font-size:11px;font-weight:600;color:#555;padding:0 2px}
+.section-lbl{font-size:13px;font-weight:600;margin-bottom:8px;margin-top:14px;color:#1a1a1a}
+.info-section{margin-bottom:12px}
+.info-section h3{font-size:14px;font-weight:600;margin-bottom:6px;color:#185FA5}
+.info-section.warn h3{color:#c0392b}
+.info-section p{font-size:13px;line-height:1.7;color:#333}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Calculadora Kaplan-Meier</h1>
+  <p class="subtitle">Análisis de supervivencia en oncología · Herramienta para profesionales sanitarios</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('datos',this)">Introducir datos</button>
+    <button class="tab" onclick="switchTab('resultado',this)">Resultados</button>
+    <button class="tab" onclick="switchTab('info',this)">Guía de interpretación</button>
+  </div>
+
+  <!-- TAB: DATOS -->
+  <div id="tab-datos" class="panel active">
+    <div class="info-box">
+      Introduce los datos manualmente o carga el ejemplo predefinido. Cada paciente necesita:
+      <strong>tiempo (meses)</strong>, <strong>evento</strong> (1 = evento ocurrido, 0 = censura) y opcionalmente <strong>grupo</strong> (A o B).
+    </div>
+    <div id="err" class="error"></div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn-primary" onclick="loadExample()">Cargar ejemplo clínico</button>
+      <button onclick="clearData()">Limpiar tabla</button>
+      <button onclick="addRow()">+ Añadir fila</button>
+    </div>
+
+    <div class="card">
+      <div class="data-grid" style="margin-bottom:6px">
+        <div class="col-hdr">ID</div>
+        <div class="col-hdr">Tiempo (m)</div>
+        <div class="col-hdr">Evento</div>
+        <div class="col-hdr">Grupo</div>
+        <div></div>
+      </div>
+      <div id="data-rows"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-lbl">Pegar datos CSV (ID, tiempo, evento, grupo)</div>
+      <textarea id="csv-input" rows="5" placeholder="P01,12,1,A&#10;P02,24,0,A&#10;P03,6,1,B"></textarea>
+      <div style="margin-top:8px">
+        <button onclick="parseCSV()">Importar CSV</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn-primary" onclick="calculate()" style="padding:10px 24px;font-size:14px">
+        Calcular curvas →
+      </button>
+    </div>
+  </div>
+
+  <!-- TAB: RESULTADOS -->
+  <div id="tab-resultado" class="panel">
+    <div id="no-result" style="text-align:center;padding:2rem;color:#888;font-size:13px">
+      Introduce datos y pulsa "Calcular curvas" para ver los resultados.
+    </div>
+    <div id="result-content" style="display:none">
+      <div class="grid3" id="metrics-grid"></div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <div style="font-size:13px;font-weight:600">Curva de supervivencia Kaplan-Meier</div>
+          <div id="legend" style="display:flex;gap:14px;font-size:12px;color:#555;flex-wrap:wrap"></div>
+        </div>
+        <div id="chart-area"><canvas id="kmChart"></canvas></div>
+        <div style="font-size:11px;color:#888;margin-top:6px;text-align:center">
+          Tiempo (meses). Las cruces (†) indican observaciones censuradas.
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Tabla de supervivencia</div>
+        <div style="overflow-x:auto"><table class="tbl" id="surv-table"></table></div>
+      </div>
+
+      <div class="card" id="logrank-box" style="display:none">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">Test log-rank (comparación entre grupos)</div>
+        <div id="logrank-result"></div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button onclick="downloadChart()">Exportar gráfica (PNG)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: INFO -->
+  <div id="tab-info" class="panel">
+    <div class="card info-section">
+      <h3>¿Qué es una curva de Kaplan-Meier?</h3>
+      <p>Es un estimador no paramétrico de la función de supervivencia. Calcula la probabilidad de que un paciente no haya experimentado el evento de interés (muerte, recaída, progresión) en cada punto del tiempo. La curva desciende en escalón cada vez que ocurre un evento. Fue descrita por Kaplan y Meier en 1958 y es el estándar en oncología clínica.</p>
+    </div>
+    <div class="card info-section">
+      <h3>¿Qué significa censura?</h3>
+      <p>Una observación es <strong>censurada</strong> (evento = 0) cuando el paciente abandona el seguimiento, el estudio finaliza antes de que ocurra el evento, o el paciente muere por otra causa. El método KM incorpora estos datos parciales sin sesgos, a diferencia de un análisis simple de proporciones.</p>
+    </div>
+    <div class="card info-section">
+      <h3>Cómo interpretar la gráfica</h3>
+      <p>
+        <strong>Eje Y:</strong> Probabilidad de supervivencia (0–100%).<br>
+        <strong>Eje X:</strong> Tiempo (meses) desde inicio del seguimiento.<br>
+        <strong>Mediana de supervivencia:</strong> Tiempo en que la curva cruza el 50%.<br>
+        <strong>Cruces (†):</strong> Pacientes censurados en ese punto temporal.<br>
+        <strong>Curvas que se separan:</strong> Sugieren diferencia entre grupos; cuanto mayor la separación, mayor el posible beneficio clínico.<br>
+        <strong>IC 95%:</strong> Banda de incertidumbre alrededor de la estimación.
+      </p>
+    </div>
+    <div class="card info-section">
+      <h3>Test log-rank</h3>
+      <p>Compara si existen diferencias estadísticamente significativas entre dos curvas de supervivencia. Un p-valor &lt; 0.05 indica que las curvas difieren más de lo esperado por azar. No asume ninguna distribución específica de los tiempos de supervivencia.</p>
+    </div>
+    <div class="card info-section warn">
+      <h3>Limitaciones del método</h3>
+      <p>
+        · Asume que la censura es <em>no informativa</em> (el paciente que abandona tiene el mismo riesgo que quien continúa).<br>
+        · Las estimaciones al final de la curva son poco fiables cuando quedan pocos pacientes en riesgo.<br>
+        · No controla variables confusoras (para eso se usa la regresión de Cox).<br>
+        · El test log-rank tiene menor potencia cuando los hazard ratios no son proporcionales a lo largo del tiempo.
+      </p>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+let patients = [];
+let kmChart = null;
+
+/* ── Pestañas ── */
+function switchTab(t, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + t).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+/* ── Renderizar filas de datos ── */
+function renderRows() {
+  const c = document.getElementById('data-rows');
+  c.innerHTML = '';
+  patients.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'data-grid';
+    d.innerHTML = `
+      <input value="${p.id}" style="font-size:12px" onchange="patients[${i}].id=this.value">
+      <input type="number" min="0" value="${p.time}" style="font-size:12px"
+             onchange="patients[${i}].time=parseFloat(this.value)">
+      <select style="font-size:12px" onchange="patients[${i}].event=parseInt(this.value)">
+        <option value="1" ${p.event===1?'selected':''}>1 (evento)</option>
+        <option value="0" ${p.event===0?'selected':''}>0 (censura)</option>
+      </select>
+      <input value="${p.group}" style="font-size:12px" placeholder="A/B"
+             onchange="patients[${i}].group=this.value.trim().toUpperCase()">
+      <button class="btn-sm" style="color:#c0392b;border-color:transparent;background:none"
+              onclick="removeRow(${i})">✕</button>`;
+    c.appendChild(d);
+  });
+}
+
+function addRow() {
+  const n = patients.length + 1;
+  patients.push({ id: 'P' + String(n).padStart(2,'0'), time: 12, event: 1, group: 'A' });
+  renderRows();
+}
+function removeRow(i) { patients.splice(i, 1); renderRows(); }
+function clearData() { patients = []; renderRows(); }
+
+/* ── Ejemplo clínico ── */
+function loadExample() {
+  patients = [
+    {id:'P01',time:6, event:1,group:'A'},{id:'P02',time:12,event:1,group:'A'},
+    {id:'P03',time:18,event:0,group:'A'},{id:'P04',time:24,event:1,group:'A'},
+    {id:'P05',time:30,event:0,group:'A'},{id:'P06',time:36,event:1,group:'A'},
+    {id:'P07',time:8, event:1,group:'A'},{id:'P08',time:14,event:1,group:'A'},
+    {id:'P09',time:20,event:0,group:'A'},{id:'P10',time:26,event:1,group:'A'},
+    {id:'P11',time:10,event:1,group:'B'},{id:'P12',time:18,event:1,group:'B'},
+    {id:'P13',time:24,event:0,group:'B'},{id:'P14',time:32,event:1,group:'B'},
+    {id:'P15',time:40,event:0,group:'B'},{id:'P16',time:36,event:1,group:'B'},
+    {id:'P17',time:12,event:0,group:'B'},{id:'P18',time:28,event:1,group:'B'},
+    {id:'P19',time:44,event:0,group:'B'},{id:'P20',time:48,event:1,group:'B'}
+  ];
+  renderRows();
+  showError('');
+}
+
+/* ── CSV ── */
+function parseCSV() {
+  const raw = document.getElementById('csv-input').value.trim();
+  if (!raw) { showError('El campo CSV está vacío.'); return; }
+  const lines = raw.split('\n');
+  const parsed = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(s => s.trim());
+    if (cols.length < 3) { showError(`Línea ${i+1}: se necesitan al menos 3 columnas (ID, tiempo, evento).`); return; }
+    const t = parseFloat(cols[1]), e = parseInt(cols[2]);
+    if (isNaN(t) || t < 0) { showError(`Línea ${i+1}: tiempo inválido ("${cols[1]}").`); return; }
+    if (e !== 0 && e !== 1) { showError(`Línea ${i+1}: evento debe ser 0 o 1.`); return; }
+    parsed.push({ id: cols[0] || 'P'+(i+1), time: t, event: e, group: (cols[3]||'A').toUpperCase() });
+  }
+  patients = parsed; renderRows(); showError('');
+  document.getElementById('csv-input').value = '';
+}
+
+function showError(msg) {
+  const e = document.getElementById('err');
+  e.style.display = msg ? 'block' : 'none';
+  e.textContent = msg;
+}
+
+/* ── Algoritmo Kaplan-Meier ── */
+function kmEstimate(pts) {
+  if (!pts.filter(p => p.event === 1).length) return null;
+  const allTimes = [...new Set(pts.map(p => p.time))].sort((a,b) => a-b);
+  let S = 1, n = pts.length;
+  const steps = [{ t:0, S:1, d:0, n, cens:0 }];
+  allTimes.forEach(t => {
+    const d = pts.filter(p => p.event===1 && p.time===t).length;
+    const c = pts.filter(p => p.event===0 && p.time===t).length;
+    if (d > 0) S = S * (1 - d / n);
+    steps.push({ t, S: parseFloat(S.toFixed(4)), d, n, cens: c });
+    n -= (d + c);
+  });
+  return steps;
+}
+
+function median50(steps) {
+  for (let i = 1; i < steps.length; i++) { if (steps[i].S <= 0.5) return steps[i].t; }
+  return null;
+}
+
+function survAt(steps, t) {
+  let last = steps[0].S;
+  for (const s of steps) { if (s.t > t) break; last = s.S; }
+  return last;
+}
+
+/* ── Test log-rank ── */
+function logRankTest(g1, g2) {
+  const allTimes = [...new Set([...g1,...g2].filter(p=>p.event===1).map(p=>p.time))].sort((a,b)=>a-b);
+  let O = 0, E = 0;
+  allTimes.forEach(t => {
+    const n1 = g1.filter(p=>p.time>=t).length, n2 = g2.filter(p=>p.time>=t).length;
+    const d1 = g1.filter(p=>p.event===1&&p.time===t).length, d2 = g2.filter(p=>p.event===1&&p.time===t).length;
+    const N = n1+n2, D = d1+d2;
+    if (N > 0) { O += d1; E += D*(n1/N); }
+  });
+  const chi2 = Math.pow(O-E,2)/E;
+  const p = 1 - chi2CDF(chi2, 1);
+  return { chi2: chi2.toFixed(3), p: p < 0.001 ? '< 0.001' : p.toFixed(3), sig: p < 0.05 };
+}
+
+/* ── Funciones estadísticas ── */
+function chi2CDF(x, df) { return x < 0 ? 0 : gammaInc(df/2, x/2); }
+function gammaInc(a, x) {
+  if (x === 0) return 0;
+  let sum = 1/a, term = 1/a;
+  for (let i = 1; i < 100; i++) { term *= x/(a+i); sum += term; if (term < 1e-10) break; }
+  return Math.min(1, sum * Math.exp(-x + a*Math.log(x) - lgamma(a)));
+}
+function lgamma(z) {
+  const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];
+  let y=z, x=z, tmp=x+5.5;
+  tmp=(x+0.5)*Math.log(tmp)-tmp;
+  let ser=1.000000000190015;
+  for(let j=0;j<6;j++) ser+=c[j]/++y;
+  return tmp+Math.log(2.5066282746310005*ser/x);
+}
+
+/* ── Cálculo principal ── */
+function calculate() {
+  showError('');
+  if (patients.length === 0) { showError('No hay datos. Introduce pacientes o carga el ejemplo.'); return; }
+  if (patients.some(p => isNaN(p.time) || p.time < 0)) { showError('Datos inválidos: revisa que los tiempos sean números positivos.'); return; }
+  if (patients.some(p => p.event !== 0 && p.event !== 1)) { showError('El campo evento solo admite 0 (censura) o 1 (evento).'); return; }
+
+  const groups = [...new Set(patients.map(p=>p.group))].sort();
+  const colors = ['#185FA5','#0F6E56','#993C1D','#993556'];
+
+  const allKM = groups.map((g, gi) => ({
+    group: g, pts: patients.filter(p=>p.group===g), color: colors[gi % colors.length]
+  }));
+  allKM.forEach(gk => { gk.km = kmEstimate(gk.pts); gk.med = gk.km ? median50(gk.km) : null; });
+
+  const lastTime = Math.max(...patients.map(p=>p.time));
+
+  /* Métricas */
+  const mg = document.getElementById('metrics-grid');
+  mg.innerHTML = '';
+  allKM.forEach(gk => {
+    const pct = t => gk.km ? (survAt(gk.km, t)*100).toFixed(1)+'%' : '—';
+    const med = gk.med ? gk.med+' m' : 'no alcanzada';
+    mg.insertAdjacentHTML('beforeend', `
+      <div class="metric" style="border-top:3px solid ${gk.color}">
+        <div class="grp" style="color:${gk.color}">GRUPO ${gk.group} (n=${gk.pts.length})</div>
+        <div class="lbl">Mediana supervivencia</div>
+        <div class="val" style="color:${gk.color}">${med}</div>
+        <div class="sv-row">
+          <div class="sv-item"><div class="n">${pct(6)}</div><div class="l">SV 6m</div></div>
+          <div class="sv-item"><div class="n">${pct(12)}</div><div class="l">SV 12m</div></div>
+          <div class="sv-item"><div class="n">${pct(24)}</div><div class="l">SV 24m</div></div>
+        </div>
+      </div>`);
+  });
+
+  /* Gráfica */
+  if (kmChart) { kmChart.destroy(); }
+  const datasets = [];
+  allKM.forEach(gk => {
+    const pts = [{ x:0, y:100 }];
+    gk.km.slice(1).forEach((s,i) => {
+      pts.push({ x:s.t, y:parseFloat((gk.km[i].S*100).toFixed(2)) });
+      pts.push({ x:s.t, y:parseFloat((s.S*100).toFixed(2)) });
+    });
+    datasets.push({ label:'Grupo '+gk.group, data:pts, borderColor:gk.color,
+      backgroundColor:'transparent', borderWidth:2, pointRadius:0, tension:0 });
+    const cens = gk.km.filter(s=>s.cens>0).map(s=>({ x:s.t, y:parseFloat((s.S*100).toFixed(2)) }));
+    datasets.push({ label:'_cens'+gk.group, data:cens, showLine:false, pointRadius:6,
+      pointStyle:'crossRot', borderColor:gk.color, borderWidth:2, backgroundColor:gk.color });
+  });
+
+  const ctx = document.getElementById('kmChart').getContext('2d');
+  kmChart = new Chart(ctx, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false, animation:{duration:500},
+      plugins: {
+        legend: { display:false },
+        tooltip: { callbacks: { label: c => c.dataset.label.startsWith('_')
+          ? `Censura: ${c.parsed.x}m`
+          : `${c.dataset.label}: ${c.parsed.y.toFixed(1)}% a ${c.parsed.x}m` }}
+      },
+      scales: {
+        x: { title:{display:true,text:'Tiempo (meses)',font:{size:12}}, min:0,
+             grid:{color:'rgba(0,0,0,0.07)'}, ticks:{font:{size:11}} },
+        y: { title:{display:true,text:'Supervivencia acumulada (%)',font:{size:12}},
+             min:0, max:100, grid:{color:'rgba(0,0,0,0.07)'},
+             ticks:{font:{size:11},callback:v=>v+'%'} }
+      }
+    }
+  });
+
+  document.getElementById('legend').innerHTML = allKM.map(gk =>
+    `<span><span class="legend-dot" style="background:${gk.color}"></span>Grupo ${gk.group} (n=${gk.pts.length})</span>`
+  ).join('');
+
+  /* Tabla */
+  const tbl = document.getElementById('surv-table');
+  tbl.innerHTML = `<thead><tr><th>Tiempo</th>${allKM.map(g=>
+    `<th>N riesgo (${g.group})</th><th>Eventos (${g.group})</th><th>SV % (${g.group})</th>`
+  ).join('')}</tr></thead>`;
+  const tbody = document.createElement('tbody');
+  [0,3,6,9,12,18,24,36,48].filter(t=>t<=lastTime+1).forEach(t => {
+    const tr = document.createElement('tr');
+    let html = `<td><strong>${t} m</strong></td>`;
+    allKM.forEach(gk => {
+      const step = gk.km.reduce((acc,s) => s.t<=t ? s : acc, gk.km[0]);
+      const nrisk  = gk.pts.filter(p=>p.time>=t).length;
+      const nevents= gk.pts.filter(p=>p.event===1&&p.time<=t).length;
+      html += `<td>${nrisk}</td><td>${nevents}</td><td>${(step.S*100).toFixed(1)}%</td>`;
+    });
+    tr.innerHTML = html; tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+
+  /* Log-rank */
+  const lrbox = document.getElementById('logrank-box');
+  if (allKM.length === 2) {
+    const lr = logRankTest(allKM[0].pts, allKM[1].pts);
+    document.getElementById('logrank-result').innerHTML = `
+      <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px;align-items:center">
+        <span>χ² = <strong>${lr.chi2}</strong></span>
+        <span>p-valor = <strong>${lr.p}</strong></span>
+        <span class="badge ${lr.sig?'badge-ok':'badge-ko'}">
+          ${lr.sig ? 'Diferencia significativa (p < 0.05)' : 'Sin diferencia significativa (p ≥ 0.05)'}
+        </span>
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:6px">
+        H₀: las curvas de supervivencia son iguales en ambos grupos.
+      </div>`;
+    lrbox.style.display = 'block';
+  } else { lrbox.style.display = 'none'; }
+
+  document.getElementById('no-result').style.display = 'none';
+  document.getElementById('result-content').style.display = 'block';
+  switchTab('resultado', document.querySelectorAll('.tab')[1]);
+}
+
+/* ── Exportar PNG ── */
+function downloadChart() {
+  const canvas = document.getElementById('kmChart');
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'curva_kaplan_meier.png';
+  a.click();
+}
+
+/* ── Init ── */
+loadExample();
+</script>
+</body>
+</html>
